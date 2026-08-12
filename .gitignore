@@ -1,0 +1,27 @@
+# Python
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+
+# Generated datasets
+final_test/
+final_submission_50/
+submission_test/
+evaluation_dataset/
+test_extraction/inference_test_dataset/
+
+# Temporary output
+output.txt
+cli_test.json
+
+# Generated evaluation results
+results/*.csv
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

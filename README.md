@@ -1,148 +1,210 @@
-﻿# Drift-Sense: Precision Wafer Localization Engine
+# Drift-Sense: Precision Wafer Localization Engine
 
-An advanced, scale-invariant image registration engine designed for the semiconductor inspection localization challenge. Drift-Sense is engineered to localize extremely periodic and highly distorted sub-pitch semiconductor structures (FinFETs) inside large search areas, without relying on external metadata.
+Drift-Sense is a deterministic, classical computer‑vision image‑registration and localization engine. It locates a small reference image (template) inside a much larger search image that contains highly periodic, semiconductor‑style structures. The implementation is designed to handle scale mismatch, sensor noise, and sub‑pitch periodic ambiguity without using ground‑truth metadata or learned models.
 
 ![Python](https://img.shields.io/badge/python-3.8%2B-blue)
-![Tests](https://img.shields.io/badge/tests-203%20passed-success)
-![Accuracy](https://img.shields.io/badge/accuracy%20(â‰¤5px)-100%25-success)
+![Accuracy](https://img.shields.io/badge/accuracy_%28%E2%89%A45px%29-100%25-green)
 
 ## Overview
 
-In semiconductor wafer inspection, matching a small template (reference) against a large Field of View (search image) is challenging due to sub-pitch periodic structures, scale variations, and intense manufacturing/sensor noise. Drift-Sense tackles this via a deterministic, classical computer vision pipeline optimized for periodic ambiguity resolution, completely avoiding black-box neural networks.
+Template localization on wafer imagery is challenging because many structures are highly repetitive: identical or near‑identical motifs repeat at sub‑pitch intervals. Naive template matching produces multiple similarly high correlation peaks corresponding to these repeats, making it ambiguous which peak corresponds to the intended reference region.
 
-## Key Capabilities
+Typical failure modes:
 
-- **Zero-Metadata Inference:** Computes exact geometric mapping using only image data.
-- **Top-2 Sharpness Verification:** Resolves sub-pitch aliasing by dynamically analyzing local peak sharpness when multiple structural periods exhibit identical ZNCC intensities.
-- **Scale-Invariant:** Multi-scale hierarchical search correctly locks onto patterns regardless of scaling drifts.
-- **Sub-Pixel Precision:** Refines bounding boxes via localized quadratic/Gaussian interpolation for sub-pixel accuracy.
-- **Production-Ready Performance:** Average CPU runtime of ~2.7s per megapixel search.
+Reference image
+        ↓
+Search image
+        ↓
+Scale mismatch → the spatial period can change
+        ↓
+Periodic ambiguity → multiple correlation peaks
+        ↓
+Multiple candidate peaks → need deterministic disambiguation
+        ↓
+Candidate verification → check structural similarity
+        ↓
+Sub‑pixel localization → refine to continuous coordinates
 
-## How the Algorithm Works
+Drift‑Sense addresses each step with deterministic signal‑processing and image‑processing components (no ML): preprocessing, multi‑scale search, FFT‑based ZNCC, morphological peak detection and NMS, center‑aware tie‑breaking, local sharpness verification, sub‑pixel refinement, and a final verification stage.
 
-1. **Preprocessing:** Reference and search images are normalized for illumination invariance.
-2. **Multi-Scale Search:** `estimate_top_n_scales` identifies the top 2 scale candidates across a bounded scale space.
-3. **ZNCC Matching:** `compute_zncc_fft` executes an ultra-fast FFT-based Zero-mean Normalized Cross-Correlation to find candidate regions.
-4. **Candidate Peak Detection:** `detect_best_peak` extracts structural coordinates with Non-Maximum Suppression (NMS) and a center-aware spatial tie-breaker.
-5. **Periodic-Structure Disambiguation:** If the intensity gap between the top 2 candidates is $< 0.015$, the engine triggers **Sharpness Verification** (`get_sharpness`), deferring to the mathematically sharper peak to evade sub-pitch aliasing.
-6. **Sub-Pixel Refinement:** `refine_subpixel` fits a 2D polynomial surface around the discrete pixel peak to resolve continuous coordinates.
-7. **Coordinate Translation:** Outputs the precise $(x, y)$ center of the target in search-image coordinates.
+## Key Features
 
-## Installation
+- Multi‑scale search (coarse → fine → ultra‑fine): robust to modest magnification drift; narrows candidate scales before expensive matching.
+- FFT‑based Zero‑Mean Normalized Cross‑Correlation (ZNCC): efficient production matcher for dense response maps (zncc.py).
+- Candidate peak detection: morphological local‑maximum extraction and thresholding to find valid peaks (peak_detector.py).
+- Non‑Maximum Suppression (NMS): avoids selecting clusters of nearby maxima as separate candidates.
+- Center‑aware disambiguation: deterministic tie‑breaking that prefers the candidate nearest the image center when scores are ambiguous.
+- Peak sharpness verification: local 3×3 annulus sharpness metric used to help resolve top‑2 intensity ties.
+- Sub‑pixel refinement: 1D parabolic interpolation along X and Y for continuous coordinate estimation (subpixel.py).
+- Synthetic dataset generation: procedural FinFET‑style dataset generator and CLI for controlled evaluation (generate_dataset.py / src/drift_sense/dataset.py).
+- Standalone CLI and programmatic API: a minimal CLI (inference.py) and Python entrypoints for batch or single inference runs.
+- Automated tests: unit and integration tests under `tests/` to exercise core modules.
 
-A clean virtual environment is highly recommended. Only minimal production dependencies are required.
+Each feature is present in the repository; descriptions above indicate the reason the component exists (robustness, efficiency, determinism).
+
+## How Drift‑Sense Solves the Problem (Algorithm — implementation order)
+
+The implementation in src/drift_sense/matcher.py orchestrates the pipeline in the following order. For each stage below, the input, operation, and output are described.
+
+1. Image loading and validation
+   - Input: reference and search image file paths
+   - Operation: validate file paths exist; load images later in preprocessing
+   - Output: file paths validated (validate_image_path)
+
+2. Preprocessing
+   - Input: image files
+   - Operation: grayscale load, optional CLAHE / blur, z‑score normalization to float32 (preprocess.py)
+   - Output: normalized float32 arrays ready for numerical matching
+
+3. Reference/search pairing validation
+   - Input: normalized arrays
+   - Operation: ensure reference is strictly smaller than search image in both dims (validate_reference_search_pairing)
+   - Output: gating check to avoid invalid correlation
+
+4. Scale estimation (top‑N)
+   - Input: normalized reference and search
+   - Operation: PSD heuristic (optional) → coarse grid scoring (fast cv2.matchTemplate proxy) → fine & ultra‑fine refinement (scale_search.py)
+   - Output: a short list of fully refined scale candidates (estimate_top_n_scales)
+
+5. Multi‑scale matching (per candidate)
+   - Input: each candidate scale
+   - Operation: resize the reference to the scale, compute FFT‑ZNCC against the search image to obtain a dense response map (compute_zncc_fft)
+   - Output: response map per scale
+
+6. Candidate peak detection
+   - Input: response map
+   - Operation: morphological NMS (dilation), threshold by response delta, build PeakCandidate list and deterministically sort by score then distance to center (peak_detector.detect_peaks)
+   - Output: sorted candidate list
+
+7. Deterministic candidate selection / tie‑break
+   - Input: sorted candidates
+   - Operation: if top‑1 score gap > delta → choose top‑1; otherwise collect all candidates within delta and pick the one nearest the center (peak_detector.select_best_peak)
+   - Output: integer (x, y) peak coordinate in response‑map space
+
+8. Local peak sharpness and ambiguity handling
+   - Input: response map and chosen peak
+   - Operation: compute 3×3 annulus sharpness (peak_detector.get_sharpness); when the top‑2 intensity gap is below a configured threshold, compare sharpness and optionally select the sharper candidate (or keep top‑1)
+   - Output: possibly alternative candidate chosen when ambiguity exists
+
+9. Sub‑pixel refinement
+   - Input: integer peak coordinate in response map
+   - Operation: independent 1D parabolic interpolation along X and Y to compute dx, dy, clamp by config bounds (subpixel.refine_subpixel)
+   - Output: refined (x, y) in response‑map coordinates
+
+10. Coordinate translation and verification
+    - Input: sub‑pixel coordinates, scaled reference size, and the search image
+    - Operation: translate response‑map coordinate to a center (x, y) in the search image; extract a sub‑pixel crop and compute verification scores (intensity ZNCC + gradient ZNCC) to produce a combined confidence and a pass/fail flag (verification.verify_match)
+    - Output: final InferenceResult containing prediction, scale used, confidence, fallback flag, execution time, and message
+
+This flow is fully deterministic and implemented end‑to‑end in Python (no GPU or external inference frameworks are required).
+
+## Technical Architecture
+
+| Module | Responsibility |
+|--------|----------------|
+| inference.py (root) | Minimal CLI wrapper used for evaluator compatibility (prints single tuple to stdout). Also provided under src/drift_sense/inference.py for programmatic use. |
+| src/drift_sense/matcher.py | End‑to‑end inference orchestrator: validation, preprocessing, scale estimation, per‑scale matching, candidate collection, disambiguation, verification, and assembly of InferenceResult. |
+| src/drift_sense/scale_search.py | Multi‑stage scale estimation: optional PSD prior, coarse grid scoring (fast proxy), and fine/ultra‑fine refinement to produce candidate scales (estimate_top_n_scales and estimate_scale). |
+| src/drift_sense/zncc.py | FFT‑based production ZNCC implementation (compute_zncc_fft) and a spatial reference implementation for testing/validation. Also contains local statistics helpers and response validation. |
+| src/drift_sense/peak_detector.py | Peak detection pipeline: morphological NMS, score thresholding, candidate construction/sorting, deterministic center‑aware tie‑breaking, and local sharpness metric. |
+| src/drift_sense/subpixel.py | Sub‑pixel refinement using separable 1D parabolic interpolation for X and Y, with numerical safeguards. |
+| src/drift_sense/preprocess.py | Image I/O and preprocessing: grayscale load, CLAHE, blurs, and z‑score normalization. |
+| src/drift_sense/dataset.py (+ generate_dataset.py) | Procedural synthetic dataset generation (FinFET‑style) for controlled evaluation; writes ground‑truth JSON with each sample. |
+| src/drift_sense/validate.py | Input validation helpers (image path checks, array shape/dtype checks, reference/search size gating). |
+| src/drift_sense/verification.py | Structural verification of the predicted crop against the scaled reference using combined intensity and gradient ZNCC. |
+| src/drift_sense/types.py | Shared dataclasses and type aliases (Coordinate, InferenceResult, ImageArray). |
+
+All modules include unit‑testable functions and clear architectural contracts (see module docstrings for details).
+
+## Algorithm Diagram
+
+```mermaid
+flowchart TD
+    A[Reference Image] --> C[Preprocessing]
+    B[Search Image] --> C
+    C --> D[Scale Search]
+    D --> E[Multi‑Scale ZNCC]
+    E --> F[Candidate Peak Detection]
+    F --> G[Candidate Selection / Tie‑Break]
+    G --> H[Peak Sharpness Verification]
+    H --> I[Sub‑Pixel Refinement]
+    I --> J[Coordinate Translation]
+    J --> K[Verification]
+    K --> L[Final X,Y Coordinate]
+```
+
+(Note: the diagram corresponds to the implementation in src/drift_sense/matcher.py and submodules.)
+
+## Evaluation and Results
+
+A synthetic evaluation summary is included at `results/summary.json` (50 synthetic FinFET‑style samples). Key metrics from that file:
+
+- Samples: 50
+- ≤1 px accuracy: 52.0%
+- ≤2 px accuracy: 88.0%
+- ≤5 px accuracy: 100.0%
+- Mean error: ~1.085 px
+- Median error: ~0.987 px
+- Maximum error: ~3.076 px
+- Mean runtime: ~2.766 s/sample
+
+These numbers reflect offline synthetic evaluation using the repository tools and are provided for reproducibility and comparison. They do not imply guaranteed field performance on unseen real inspection data.
+
+## Usage
+
+Install requirements and run the CLI. A Python 3.8+ runtime is required.
 
 ```bash
-# Clone the repository
 git clone https://github.com/Yukanthdayalan/drift-sense
 cd drift-sense
-
-# Create a clean virtual environment
 python -m venv .venv
-
-# Activate the environment (Windows PowerShell)
-.\.venv\Scripts\activate
-# If restricted by execution policies, use explicitly: .\.venv\Scripts\python.exe
-
-# Install production dependencies
+# Activate venv (platform dependent)
 pip install -r requirements.txt
 
-# (Optional) Install development dependencies for testing
-pip install -r requirements-dev.txt
-```
+# Single inference (prints one mandatory line to stdout for evaluator compatibility)
+python inference.py <reference.png> <search.png>
 
-## Production Inference
-
-The inference engine runs completely standalone. It suppresses all internal verbose logging to maintain a clean machine-readable pipe.
-
-```bash
-python inference.py <path_to_reference.png> <path_to_search.png>
-```
-
-### CLI Output
-
-The mandatory script outputs exactly one line to `stdout`:
-```text
-(174.8601, 366.7831)
-```
-
-Optionally, you can dump a structured JSON output by providing the `--output` flag (the single line to `stdout` is preserved):
-```bash
+# Optionally write a JSON result
 python inference.py <reference.png> <search.png> --output output.json
 ```
-**`output.json`**
-```json
-{
-  "prediction_x": 174.860124,
-  "prediction_y": 366.783182
-}
+
+Programmatic use (example):
+
+```python
+from drift_sense.inference import run_inference
+res = run_inference('ref.png', 'search.png')
+print(res.prediction.x, res.prediction.y)
 ```
 
-## Dataset Generation
+## Generating synthetic datasets
 
-You can procedurally generate completely unobserved synthetic periodic defect datasets (FinFET style) for blind evaluation.
+Generate a small FinFET‑style synthetic dataset for local testing:
 
 ```bash
 python generate_dataset.py --architecture finfet --num-pairs 30 --output-dir evaluation_dataset
 ```
-This generates pairs of `reference.png` and `search.png`. The absolute ground-truth center coordinate is recorded in each sample's `ground_truth.json`. **Note:** The inference engine never touches this ground truth.
+
+Each generated pair includes `reference.png`, `search.png`, and `ground_truth.json` with the absolute center coordinate used for offline evaluation.
 
 ## Testing
 
-The project maintains a comprehensive pytest suite covering the inference orchestrator, subpixel optimization, and geometric disambiguation modules.
+Run the existing pytest suite:
 
 ```bash
 python -m pytest -q
 ```
-*(Current status: 203 passing)*
 
-## Evaluation Results
+## Limitations & Notes
 
-The production algorithm was independently evaluated on a 50-sample high-noise synthetic FinFET dataset (`results/summary.json`).
+- Deterministic, classical CV pipeline — no neural networks or learned models are used.
+- No GPU‑specific codepaths are present; the implementation runs on CPU.
+- Evaluation results are from synthetic datasets generated within this repository; they should not be taken as guaranteed performance on production inspection data.
+- The scale search is configured with bounded min/max scale values — for extreme magnification differences adjust the scale_search configuration.
 
-| Metric | Result |
-|---|---:|
-| Samples | 50 |
-| â‰¤1 px accuracy | 52.0% |
-| â‰¤2 px accuracy | 88.0% |
-| **â‰¤5 px accuracy** | **100.0%** |
-| Mean error | 1.085 px |
-| Median error | 0.987 px |
-| Maximum error | 3.076 px |
-| Mean runtime | 2.766 s/sample |
-| Median runtime | 2.725 s/sample |
-| Maximum runtime | 3.404 s/sample |
+## Contribution & Contacts
 
-*100% of evaluated samples were within the 5-pixel tolerance limit. The maximum registered error was ~3.076 pixels, showcasing total elimination of catastrophic >10px scale aliasing.*
+Contributions that preserve the deterministic architecture and include tests are welcome. For reproducibility issues or questions about module contracts, inspect the module docstrings in `src/drift_sense/` and the test cases in `tests/`.
 
-## Repository Structure
+---
 
-```text
-drift-sense/
-â”œâ”€â”€ generate_dataset.py     # CLI interface for synthetic FinFET datasets
-â”œâ”€â”€ inference.py            # Production standalone evaluator entry point
-â”œâ”€â”€ requirements.txt        # Production dependencies (numpy, opencv-python, scipy)
-â”œâ”€â”€ requirements-dev.txt    # Development dependencies (pytest)
-â”œâ”€â”€ README.md               # Documentation
-â”œâ”€â”€ SUBMISSION_CHECKLIST.md # Official submission verification log
-â”œâ”€â”€ src/drift_sense/        # Core algorithm package
-â”‚   â”œâ”€â”€ dataset.py          # Synthetic generation logic
-â”‚   â”œâ”€â”€ matcher.py          # End-to-end inference orchestrator
-â”‚   â”œâ”€â”€ peak_detector.py    # NMS and sharpness disambiguation
-â”‚   â”œâ”€â”€ scale_search.py     # Multi-scale Top-N frequency estimation
-â”‚   â”œâ”€â”€ subpixel.py         # Sub-pixel quadratic interpolation
-â”‚   â””â”€â”€ zncc.py             # FFT-based template matching
-â”œâ”€â”€ docs/                   # Auxiliary documentation
-â”œâ”€â”€ references/             # Literature/Citation placeholders
-â”œâ”€â”€ results/                # CSV and JSON evaluation exports
-â””â”€â”€ tests/                  # Pytest unit and integration suite
-```
-
-## Reproducibility
-
-Any user can immediately clone the repository, install `requirements.txt`, run `generate_dataset.py`, and validate the localization pipeline using `inference.py`. No GPU, proprietary framework, or hidden calibration metadata is required.
-
-## Limitations
-
-- **DRAM Support:** Full procedural generation of generalized DRAM topology is not currently active (defaults to general periodic structures mapping similarly to FinFET).
-- **Scale Bounds:** The system heavily optimizes for the `[9.5, 10.5]` scaling bracket expected in standard inspection inputs. Drastic scaling beyond this space may require modifying the internal `config.scale_search` ranges.
+This README was written to reflect the repository implementation and packaged evaluation artifacts exactly. If you want, I can also add a short developer section summarizing the main configuration knobs and where to change them (NMS radius, tie delta, subpixel max offset, scale grid steps).

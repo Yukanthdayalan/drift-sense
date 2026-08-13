@@ -422,14 +422,22 @@ def estimate_top_n_scales(
         raise ScaleSearchError("No valid candidate found in top-n coarse search.")
         
     coarse.sort(key=lambda x: x[1], reverse=True)
-    top_coarse = [x[0] for x in coarse[:n_scales]]
-    
     final_scales = []
-    for cs in top_coarse:
+    for cs, _ in coarse:
         try:
             fine_scale, _ = fine_scale_search(ref_image, search_image, cs, config)
             ultra_scale, _ = ultra_fine_scale_search(ref_image, search_image, fine_scale, config)
-            final_scales.append(ultra_scale)
+            
+            is_duplicate = False
+            for existing in final_scales:
+                if abs(existing - ultra_scale) < 0.01:
+                    is_duplicate = True
+                    break
+                    
+            if not is_duplicate:
+                final_scales.append(ultra_scale)
+                if len(final_scales) == n_scales:
+                    break
         except ScaleSearchError:
             continue
             

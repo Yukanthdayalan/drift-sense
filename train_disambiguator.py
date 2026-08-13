@@ -28,8 +28,8 @@ class CropDataset(Dataset):
         
     def __getitem__(self, idx):
         crop, label = self.data[idx]
-        # Normalize crop to [0, 1]
-        crop_tensor = torch.from_numpy(crop).float().unsqueeze(0) / 255.0
+        # Crop is already Z-score normalized
+        crop_tensor = torch.from_numpy(crop).float().unsqueeze(0)
         label_tensor = torch.tensor([label], dtype=torch.float32)
         return crop_tensor, label_tensor
 

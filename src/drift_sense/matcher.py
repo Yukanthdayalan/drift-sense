@@ -95,8 +95,8 @@ def match(reference_path: str, search_path: str, config: EngineConfig = None) ->
                     crop0 = extract_crop(search_norm, cands[0]["x_center"], cands[0]["y_center"], 64)
                     crop1 = extract_crop(search_norm, cands[1]["x_center"], cands[1]["y_center"], 64)
                     
-                    t0 = torch.from_numpy(crop0).float().unsqueeze(0).unsqueeze(0) / 255.0
-                    t1 = torch.from_numpy(crop1).float().unsqueeze(0).unsqueeze(0) / 255.0
+                    t0 = torch.from_numpy(crop0).float().unsqueeze(0).unsqueeze(0)
+                    t1 = torch.from_numpy(crop1).float().unsqueeze(0).unsqueeze(0)
                     
                     with torch.no_grad():
                         score0 = cnn_model(t0).item()

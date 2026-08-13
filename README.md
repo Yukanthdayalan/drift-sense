@@ -60,11 +60,7 @@ On synthetic evaluation datasets, the approach provides remarkable stability, ev
 - **Accuracy <= 1 px**: 100.0%
 
 ### Ambiguous Subset Analysis
-To isolate the value of the tie-breaking logic, we evaluated only the highly ambiguous samples (29 out of 30 stress-test samples) where multiple candidate peaks fell within the tight intensity threshold, triggering the disambiguation logic:
-- **Classical (Sharpness Heuristic) <= 1px Accuracy**: 86.2% (100% <= 2px)
-- **Hybrid (CNN) <= 1px Accuracy**: 86.2% (100% <= 2px)
-
-On this synthetic dataset, the classical topological sharpness heuristic performs exactly on par with the CNN model. Both approaches successfully resolve the ambiguity without complete failure, demonstrating that the robust ZNCC grid search coupled with a simple sharpness tie-break is sufficient, rendering the CNN directionally supportive but not strictly necessary for this specific synthetic distribution.
+We implemented a hybrid CNN disambiguator designed to resolve periodic-ambiguity ties that the deterministic ZNCC backbone cannot break with correlation score alone. Rigorous testing (after fixing a scale-search artifact that had inflated the apparent ambiguity rate) showed genuine periodic ties are infrequent in this dataset's noise regime (approximately 4/30 samples), and are already resolved correctly by a lightweight sharpness heuristic at this density. The CNN architecture and training pipeline are implemented and validated for correctness, but not yet shown to outperform the heuristic at the current ambiguity frequency — we view it as a scalable extension for denser, more periodic real-fab layouts where tie frequency is expected to increase, rather than a currently load-bearing component. The classical backbone alone achieves 100.0% accuracy at <=2px on the 1.75x noise stress test.
 
 ## 14. Fresh Generalization Results
 On a fresh random synthetic generalization set (100 samples), the algorithm consistently demonstrates robust generalizability across random noise and scale seeds.

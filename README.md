@@ -48,30 +48,30 @@ The evaluation uses a procedural generator to produce highly noisy periodic FinF
 On synthetic evaluation datasets, the approach provides remarkable stability, even under simulated hardware stress (1.75x noise injection):
 
 ### Baseline (1x Noise, 30 pairs)
-- **Mean localization error**: 0.42 px
-- **Median localization error**: 0.40 px
-- **Maximum localization error**: 0.62 px
-- **Accuracy <= 1 px**: 100.0%
+- **Mean localization error**: 0.66 px
+- **Median localization error**: 0.62 px
+- **Maximum localization error**: 1.94 px
+- **Accuracy <= 1 px**: 90.0%
 
 ### Stress Test (1.75x Noise, 30 pairs)
-- **Mean localization error**: 0.49 px
-- **Median localization error**: 0.59 px
-- **Maximum localization error**: 0.59 px
-- **Accuracy <= 1 px**: 100.0%
+- **Mean localization error**: 0.65 px
+- **Median localization error**: 0.58 px
+- **Maximum localization error**: 1.97 px
+- **Accuracy <= 1 px**: 86.7%
 
 ### Ambiguous Subset Analysis
 We implemented a hybrid CNN disambiguator designed to resolve periodic-ambiguity ties that the deterministic ZNCC backbone cannot break with correlation score alone. Rigorous testing (after fixing a scale-search artifact that had inflated the apparent ambiguity rate) showed genuine periodic ties are infrequent in this dataset's noise regime (approximately 4/30 samples), and are already resolved correctly by a lightweight sharpness heuristic at this density. The CNN architecture and training pipeline are implemented and validated for correctness, but not yet shown to outperform the heuristic at the current ambiguity frequency — we view it as a scalable extension for denser, more periodic real-fab layouts where tie frequency is expected to increase, rather than a currently load-bearing component. The classical backbone alone achieves 100.0% accuracy at <=2px on the 1.75x noise stress test.
 
 ## 14. Fresh Generalization Results
-On a fresh random synthetic generalization set (100 samples, different seed from the training/evaluation datasets), the algorithm consistently demonstrates robust generalizability across random noise and scale seeds. The results are logged in `results/generalization_results.csv`.
+On a fresh random synthetic generalization set (100 samples, different seed from the training/evaluation datasets), the algorithm consistently demonstrates robust generalizability across random scale seeds at the **1.0x baseline noise level**. The results are logged in `results/generalization_results.json`.
 
-| Metric | Value |
+| Metric (1.0x Noise) | Value |
 |--------|-------|
-| **Mean Error** | 0.03 px |
-| **Median Error** | 0.02 px |
-| **Max Error** | 0.14 px |
-| **Accuracy <= 1 px** | 100.0% |
-| **Accuracy <= 2 px** | 100.0% |
+| **Mean Error** | 0.65 px |
+| **Median Error** | 0.62 px |
+| **Max Error** | 2.15 px |
+| **Accuracy <= 1 px** | 86.0% |
+| **Accuracy <= 2 px** | 99.0% |
 | **Accuracy <= 5 px** | 100.0% |
 
 ## 15. Limitations

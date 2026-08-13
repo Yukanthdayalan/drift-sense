@@ -19,6 +19,7 @@ cli_test.json
 
 # Generated evaluation results
 results/*.csv
+!results/generalization_results.json
 
 # IDE / OS
 .vscode/

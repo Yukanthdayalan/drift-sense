@@ -65,7 +65,7 @@ class TestImageDimensions(unittest.TestCase):
         """2. Reference image matches configured dimensions."""
         self.assertEqual(
             self.ref.shape,
-            (self.config.ref_size, self.config.ref_size),
+            (self.meta.ref_height, self.meta.ref_width),
         )
 
     def test_scaled_reference_fits_in_search(self) -> None:
@@ -152,14 +152,13 @@ class TestScaleRange(unittest.TestCase):
             self.assertLessEqual(meta.scale, config.scale_max)
 
     def test_scaled_dimensions_match_metadata(self) -> None:
-        """Metadata width/height must match int(round(ref_size * scale))."""
+        """Metadata width/height must match footprint size."""
         config = GeneratorConfig()
         for seed in range(10):
             _, _, meta = generate_sample(seed, config)
-            expected_w = int(round(config.ref_size * meta.scale))
-            expected_h = int(round(config.ref_size * meta.scale))
-            self.assertEqual(meta.scaled_width, expected_w)
-            self.assertEqual(meta.scaled_height, expected_h)
+            expected_size = max(config.ref_size, int(np.ceil(1.5 * config.fin_period)))
+            self.assertEqual(meta.scaled_width, expected_size)
+            self.assertEqual(meta.scaled_height, expected_size)
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +309,7 @@ class TestInvalidConfigurations(unittest.TestCase):
     def test_oversized_template_raises(self) -> None:
         """14. Scaled template larger than search must raise InvalidSampleError."""
         config = GeneratorConfig(
-            ref_size=200,
+            ref_size=1200,
             scale_min=10.0,
             scale_max=10.0,
         )
@@ -320,7 +319,7 @@ class TestInvalidConfigurations(unittest.TestCase):
     def test_tight_margin_raises(self) -> None:
         """13a. Template that leaves no room for margin must raise."""
         config = GeneratorConfig(
-            ref_size=95,
+            ref_size=950,
             scale_min=10.0,
             scale_max=10.0,
             placement_margin=50,
@@ -333,7 +332,7 @@ class TestInvalidConfigurations(unittest.TestCase):
         # ref_size=50 at scale=10 → 500×500 in 1000×1000 with margin=20
         # max_x = 1000 - 500 - 20 = 480, needs >= 20 → fine
         config = GeneratorConfig(
-            ref_size=50,
+            ref_size=960,
             scale_min=10.0,
             scale_max=10.0,
             placement_margin=20,
@@ -544,8 +543,9 @@ class TestMetadata(unittest.TestCase):
         """20c. Metadata ref dimensions match config."""
         config = GeneratorConfig()
         _, _, meta = generate_sample(42, config)
-        self.assertEqual(meta.ref_width, config.ref_size)
-        self.assertEqual(meta.ref_height, config.ref_size)
+        expected_size = int(round(max(config.ref_size, int(np.ceil(1.5 * config.fin_period))) * meta.scale))
+        self.assertEqual(meta.ref_width, expected_size)
+        self.assertEqual(meta.ref_height, expected_size)
 
 
 # ---------------------------------------------------------------------------
@@ -614,7 +614,8 @@ class TestDatasetIO(unittest.TestCase):
             with open(os.path.join(sd, "ground_truth.json")) as f:
                 gt = json.load(f)
 
-            self.assertEqual(ref.shape, (config.ref_size, config.ref_size))
+            expected_size = int(round(max(config.ref_size, int(np.ceil(1.5 * config.fin_period))) * meta.scale))
+            self.assertEqual(ref.shape, (expected_size, expected_size))
             self.assertEqual(search.shape, (config.search_size, config.search_size))
             self.assertEqual(gt["gt_top_left_x"], meta.gt_top_left_x)
             self.assertEqual(gt["gt_top_left_y"], meta.gt_top_left_y)

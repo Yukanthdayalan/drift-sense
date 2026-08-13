@@ -46,36 +46,37 @@ class TestMatcher(unittest.TestCase):
         )
         def run_case(s_size, r_size, scale, offset_x, offset_y):
             s_img = self._generate_finfet(s_size, s_size, period=30).astype(np.uint8)
-            target_h, target_w = int(r_size * scale), int(r_size * scale)
+            # Under new convention, target footprint size is r_size / scale
+            target_h, target_w = int(r_size / scale), int(r_size / scale)
             
-            # Create small reference image directly
+            # Create LARGE reference image directly
             r_img = np.zeros((r_size, r_size), dtype=np.uint8)
             cv2.circle(r_img, (r_size//2, r_size//2), r_size//4, 255, -1)
             cv2.rectangle(r_img, (1, 1), (r_size-2, r_size-2), 100, 1)
             
-            # Scale it up to match search space scale exactly like the inference engine does
-            r_upscaled = cv2.resize(r_img, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+            # Scale it DOWN to match search space scale exactly like the inference engine does
+            r_downscaled = cv2.resize(r_img, (target_w, target_h), interpolation=cv2.INTER_AREA)
             
             # Insert into the search image
-            s_img[offset_y:offset_y+target_h, offset_x:offset_x+target_w] = r_upscaled
+            s_img[offset_y:offset_y+target_h, offset_x:offset_x+target_w] = r_downscaled
             
             s_path = self._write_image(f"s_{scale}.png", s_img)
             r_path = self._write_image(f"r_{scale}.png", r_img)
             
             return match(r_path, s_path, cfg)
 
-        res1 = run_case(200, 10, 10.0, 50, 50)
+        res1 = run_case(200, 100, 10.0, 50, 50)
         self.assertAlmostEqual(res1.scale_used, 10.0, delta=0.5)
-        self.assertAlmostEqual(res1.prediction.x, 50 + 99/2.0, delta=2.5)
+        self.assertAlmostEqual(res1.prediction.x, 50 + 9/2.0, delta=2.5)
         self.assertFalse(res1.is_fallback_triggered)
         
-        res2 = run_case(200, 10, 10.4, 30, 70)
+        res2 = run_case(200, 100, 10.4, 30, 70)
         self.assertAlmostEqual(res2.scale_used, 10.4, delta=0.5)
-        self.assertAlmostEqual(res2.prediction.x, 30 + 103/2.0, delta=2.5)
+        self.assertAlmostEqual(res2.prediction.x, 30 + 9/2.0, delta=2.5)
         
-        res3 = run_case(200, 10, 9.6, 80, 20)
+        res3 = run_case(200, 100, 9.6, 80, 20)
         self.assertAlmostEqual(res3.scale_used, 9.6, delta=0.5)
-        self.assertAlmostEqual(res3.prediction.x, 80 + 95/2.0, delta=2.5)
+        self.assertAlmostEqual(res3.prediction.x, 80 + 9/2.0, delta=2.5)
 
     def test_periodic_and_tie_breaking(self):
         """7. Periodic, 8. Tie-breaking, 9. Search-image center, 10. Away from center superior, 11. Equal peaks."""
@@ -168,7 +169,8 @@ class TestMatcher(unittest.TestCase):
         """19. Determinism across repeated runs."""
         np.random.seed(42)
         s_img = np.random.randint(0, 255, (200, 200), dtype=np.uint8)
-        r_img = cv2.resize(s_img[50:100, 50:100], (10, 10), interpolation=cv2.INTER_AREA)
+        # Change reference image to be 100x100 so it scales down to 10x10
+        r_img = cv2.resize(s_img[50:100, 50:100], (100, 100), interpolation=cv2.INTER_AREA)
         s_path = self._write_image("s_det.png", s_img)
         r_path = self._write_image("r_det.png", r_img)
         
@@ -183,18 +185,20 @@ class TestMatcher(unittest.TestCase):
         """23. Full representative 1000x1000 search image."""
         cfg = EngineConfig(verification=VerificationConfig(min_gradient_similarity=0.0))
         s_h, s_w = 1000, 1000
-        r_h, r_w = 20, 20
+        # Change reference image size to 200x200 so it downscales to 20x20
+        r_h, r_w = 200, 200
         scale = 10.0
         
         search_img = self._generate_finfet(s_h, s_w, period=50).astype(np.uint8)
         search_img[300:500, 490:510] = 255
         search_img[390:410, 400:600] = 255
         
-        crop = search_img[300:500, 400:600]
+        # Crop the intersection of the cross to get a UNIQUE structural feature
+        crop = search_img[385:405, 485:505]
         ref_img = cv2.resize(crop, (r_w, r_h), interpolation=cv2.INTER_AREA)
         
         s_path = self._write_image("search_1000.png", search_img)
-        r_path = self._write_image("ref_20.png", ref_img)
+        r_path = self._write_image("ref_200.png", ref_img)
         
         t0 = time.perf_counter()
         result = match(r_path, s_path, cfg)
@@ -202,8 +206,9 @@ class TestMatcher(unittest.TestCase):
         
         self.assertTrue(result.message == "Success")
         self.assertAlmostEqual(result.scale_used, scale, delta=0.5)
-        self.assertAlmostEqual(result.prediction.x, 400 + 199/2.0, delta=2.5)
-        self.assertAlmostEqual(result.prediction.y, 300 + 199/2.0, delta=2.5)
+        # Center of the 20x20 crop is at x=485+9.5=494.5, y=385+9.5=394.5
+        self.assertAlmostEqual(result.prediction.x, 485 + 19/2.0, delta=2.5)
+        self.assertAlmostEqual(result.prediction.y, 385 + 19/2.0, delta=2.5)
         print(f"\nEnd-to-End 1000x1000 benchmark: {(t1-t0)*1000:.2f} ms")
 
 

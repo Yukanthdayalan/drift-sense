@@ -138,6 +138,10 @@ def _generate_finfet_base(
     w: int,
     rng: Generator,
     config: GeneratorConfig,
+    x_offset: float = 0.0,
+    y_offset: float = 0.0,
+    fin_period: float = None,
+    gate_period: float = None,
 ) -> np.ndarray:
     """
     Synthesise a base FinFET wafer layout as a float64 image.
@@ -154,27 +158,36 @@ def _generate_finfet_base(
         w: Image width in pixels.
         rng: Deterministic NumPy random generator.
         config: Generator configuration.
+        x_offset: Horizontal phase offset.
+        y_offset: Vertical phase offset.
+        fin_period: Override for fin_period.
+        gate_period: Override for gate_period.
 
     Returns:
         float64 image of shape (h, w), values approximately in [0, 255].
     """
+    if fin_period is None:
+        fin_period = config.fin_period
+    if gate_period is None:
+        gate_period = config.gate_period
+
     image = np.full((h, w), config.background_intensity, dtype=np.float64)
 
     # --- Vertical fins ---
-    fin_half = config.fin_period * config.fin_width_frac / 2.0
+    fin_half = fin_period * config.fin_width_frac / 2.0
     x_coords = np.arange(w, dtype=np.float64)
     # Distance from nearest fin center
-    fin_phase = np.mod(x_coords, config.fin_period)
-    fin_center_dist = np.abs(fin_phase - config.fin_period / 2.0)
+    fin_phase = np.mod(x_offset + x_coords, fin_period)
+    fin_center_dist = np.abs(fin_phase - fin_period / 2.0)
     # Smooth fin profile: bright where close to center, dark in space
     fin_mask = np.clip(1.0 - (fin_center_dist - fin_half) / 2.0, 0.0, 1.0)
     # Per-fin jitter
-    num_fins = int(np.ceil(w / config.fin_period))
+    num_fins = int(np.ceil((w + x_offset) / fin_period))
     fin_jitter = rng.uniform(-4.0, 4.0, num_fins)
     fin_jitter_map = np.zeros(w, dtype=np.float64)
     for i in range(num_fins):
-        start = int(i * config.fin_period)
-        end = min(w, int((i + 1) * config.fin_period))
+        start = max(0, int(i * fin_period - x_offset))
+        end = min(w, int((i + 1) * fin_period - x_offset))
         if start < end:
             fin_jitter_map[start:end] = fin_jitter[i]
 
@@ -182,18 +195,18 @@ def _generate_finfet_base(
     image += fin_layer[np.newaxis, :]
 
     # --- Horizontal gates ---
-    gate_half = config.gate_period * config.gate_width_frac / 2.0
+    gate_half = gate_period * config.gate_width_frac / 2.0
     y_coords = np.arange(h, dtype=np.float64)
-    gate_phase = np.mod(y_coords, config.gate_period)
-    gate_center_dist = np.abs(gate_phase - config.gate_period / 2.0)
+    gate_phase = np.mod(y_offset + y_coords, gate_period)
+    gate_center_dist = np.abs(gate_phase - gate_period / 2.0)
     gate_mask = np.clip(1.0 - (gate_center_dist - gate_half) / 2.0, 0.0, 1.0)
     # Per-gate jitter
-    num_gates = int(np.ceil(h / config.gate_period))
+    num_gates = int(np.ceil((h + y_offset) / gate_period))
     gate_jitter = rng.uniform(-3.0, 3.0, num_gates)
     gate_jitter_map = np.zeros(h, dtype=np.float64)
     for i in range(num_gates):
-        start = int(i * config.gate_period)
-        end = min(h, int((i + 1) * config.gate_period))
+        start = max(0, int(i * gate_period - y_offset))
+        end = min(h, int((i + 1) * gate_period - y_offset))
         if start < end:
             gate_jitter_map[start:end] = gate_jitter[i]
 
@@ -240,6 +253,34 @@ def _generate_finfet_base(
     return np.clip(image, 0.0, 255.0)
 
 
+def _inject_global_defects(
+    image: np.ndarray,
+    config: GeneratorConfig,
+    rng: Generator,
+) -> np.ndarray:
+    """Inject global (background) defects scattered across the entire image."""
+    modified = image.copy()
+    h, w = image.shape[:2]
+    for _ in range(config.num_global_defects):
+        dw = int(rng.integers(config.global_defect_min_size, config.global_defect_max_size + 1))
+        dh = int(rng.integers(config.global_defect_min_size, config.global_defect_max_size + 1))
+        dx = int(rng.integers(0, max(1, w - dw)))
+        dy = int(rng.integers(0, max(1, h - dh)))
+        defect_type = int(rng.integers(0, 3))
+        if defect_type == 0:
+            val = float(rng.uniform(160.0, 230.0))
+            modified[dy:dy + dh, dx:dx + dw] = val
+        elif defect_type == 1:
+            val = float(rng.uniform(20.0, 60.0))
+            modified[dy:dy + dh, dx:dx + dw] = val
+        else:
+            if rng.random() < 0.5:
+                modified[dy, dx:dx + dw] = float(rng.uniform(40.0, 220.0))
+            else:
+                modified[dy:dy + dh, dx] = float(rng.uniform(40.0, 220.0))
+    return np.clip(modified, 0.0, 255.0)
+
+
 def _inject_target_defects(
     image: np.ndarray,
     target_y: int,
@@ -248,31 +289,22 @@ def _inject_target_defects(
     target_w: int,
     config: GeneratorConfig,
     rng: Generator,
+    scale: float = 1.0,
 ) -> np.ndarray:
     """
     Inject realistic localized process defects into the target region.
-
-    These defects make the target region structurally distinctive from the
-    surrounding periodic pattern.  They resemble real semiconductor defects:
-
-    Type 0 — Missing fin segment: vertical fin line has a gap
-    Type 1 — Gate interruption: horizontal gate line has a break
-    Type 2 — Line-width variation: local thickening/thinning of structure
-    Type 3 — Defect cluster: multiple small bright/dark spots
-    Type 4 — Edge roughness: irregular bumps along structure edges
-    Type 5 — Bridging defect: connects two adjacent fins/gates
-    Type 6 — Void/particle: circular bright or dark region
-
-    All defects are confined to the target region.
+    The defect parameters are generated in the "Search" (physical) coordinate space,
+    but applied to the `image` scaled by `scale`.
 
     Args:
-        image: The base FinFET image (modified IN PLACE and returned).
+        image: The base image to modify.
         target_y: Top-left y of target region in image coordinates.
         target_x: Top-left x of target region in image coordinates.
-        target_h: Height of target region.
-        target_w: Width of target region.
+        target_h: Height of target region (in image coordinates).
+        target_w: Width of target region (in image coordinates).
         config: Generator configuration.
         rng: Deterministic random generator.
+        scale: The scale factor (e.g. ~10.0 for Reference, 1.0 for Search).
 
     Returns:
         Modified image with defects injected.
@@ -280,51 +312,55 @@ def _inject_target_defects(
     modified = image.copy()
     img_h, img_w = image.shape[:2]
 
+    # The physical target dimensions (in Search space)
+    phys_w = int(round(target_w / scale))
+    phys_h = int(round(target_h / scale))
+
     num_defects = config.num_target_defects
 
     for _ in range(num_defects):
         defect_type = int(rng.integers(0, 7))
 
         if defect_type == 0:
-            # Missing fin segment: dark gap in a bright fin
-            gap_w = int(rng.integers(max(2, config.defect_min_size),
-                                      min(config.defect_max_size, target_w // 3) + 1))
-            gap_h = int(rng.integers(max(4, config.defect_min_size),
-                                      min(config.defect_max_size * 2, target_h // 2) + 1))
-            local_x = int(rng.integers(2, max(3, target_w - gap_w - 2)))
-            local_y = int(rng.integers(2, max(3, target_h - gap_h - 2)))
-            abs_y = target_y + local_y
-            abs_x = target_x + local_x
+            phys_gap_w = int(rng.integers(max(2, config.defect_min_size), min(config.defect_max_size, max(3, phys_w // 3)) + 1))
+            phys_gap_h = int(rng.integers(max(4, config.defect_min_size), min(config.defect_max_size * 2, max(5, phys_h // 2)) + 1))
+            phys_local_x = int(rng.integers(2, max(3, phys_w - phys_gap_w - 2)))
+            phys_local_y = int(rng.integers(2, max(3, phys_h - phys_gap_h - 2)))
+            
+            abs_y = target_y + int(round(phys_local_y * scale))
+            abs_x = target_x + int(round(phys_local_x * scale))
+            gap_h = int(round(phys_gap_h * scale))
+            gap_w = int(round(phys_gap_w * scale))
             y_end = min(img_h, abs_y + gap_h)
             x_end = min(img_w, abs_x + gap_w)
             val = config.background_intensity + float(rng.uniform(-8.0, 8.0))
             modified[abs_y:y_end, abs_x:x_end] = val
 
         elif defect_type == 1:
-            # Gate interruption: dark break in a gate line
-            gap_w = int(rng.integers(max(6, config.defect_min_size),
-                                      min(config.defect_max_size * 2, target_w // 2) + 1))
-            gap_h = int(rng.integers(max(2, config.defect_min_size),
-                                      min(config.defect_max_size, target_h // 4) + 1))
-            local_x = int(rng.integers(2, max(3, target_w - gap_w - 2)))
-            local_y = int(rng.integers(2, max(3, target_h - gap_h - 2)))
-            abs_y = target_y + local_y
-            abs_x = target_x + local_x
+            phys_gap_w = int(rng.integers(max(6, config.defect_min_size), min(config.defect_max_size * 2, max(7, phys_w // 2)) + 1))
+            phys_gap_h = int(rng.integers(max(2, config.defect_min_size), min(config.defect_max_size, max(3, phys_h // 4)) + 1))
+            phys_local_x = int(rng.integers(2, max(3, phys_w - phys_gap_w - 2)))
+            phys_local_y = int(rng.integers(2, max(3, phys_h - phys_gap_h - 2)))
+            
+            abs_y = target_y + int(round(phys_local_y * scale))
+            abs_x = target_x + int(round(phys_local_x * scale))
+            gap_h = int(round(phys_gap_h * scale))
+            gap_w = int(round(phys_gap_w * scale))
             y_end = min(img_h, abs_y + gap_h)
             x_end = min(img_w, abs_x + gap_w)
             val = config.background_intensity + float(rng.uniform(-5.0, 5.0))
             modified[abs_y:y_end, abs_x:x_end] = val
 
         elif defect_type == 2:
-            # Line-width variation: intensity shift in a local region
-            patch_w = int(rng.integers(config.defect_min_size,
-                                        min(config.defect_max_size, target_w // 3) + 1))
-            patch_h = int(rng.integers(config.defect_min_size,
-                                        min(config.defect_max_size, target_h // 3) + 1))
-            local_x = int(rng.integers(1, max(2, target_w - patch_w - 1)))
-            local_y = int(rng.integers(1, max(2, target_h - patch_h - 1)))
-            abs_y = target_y + local_y
-            abs_x = target_x + local_x
+            phys_patch_w = int(rng.integers(config.defect_min_size, min(config.defect_max_size, max(4, phys_w // 3)) + 1))
+            phys_patch_h = int(rng.integers(config.defect_min_size, min(config.defect_max_size, max(4, phys_h // 3)) + 1))
+            phys_local_x = int(rng.integers(1, max(2, phys_w - phys_patch_w - 1)))
+            phys_local_y = int(rng.integers(1, max(2, phys_h - phys_patch_h - 1)))
+            
+            abs_y = target_y + int(round(phys_local_y * scale))
+            abs_x = target_x + int(round(phys_local_x * scale))
+            patch_h = int(round(phys_patch_h * scale))
+            patch_w = int(round(phys_patch_w * scale))
             y_end = min(img_h, abs_y + patch_h)
             x_end = min(img_w, abs_x + patch_w)
             shift = float(rng.uniform(
@@ -334,12 +370,16 @@ def _inject_target_defects(
             modified[abs_y:y_end, abs_x:x_end] += shift
 
         elif defect_type == 3:
-            # Defect cluster: multiple small spots
             num_spots = int(rng.integers(4, 12))
             for _ in range(num_spots):
-                spot_y = target_y + int(rng.integers(1, max(2, target_h - 1)))
-                spot_x = target_x + int(rng.integers(1, max(2, target_w - 1)))
-                radius = int(rng.integers(1, 4))
+                phys_spot_y = int(rng.integers(1, max(2, phys_h - 1)))
+                phys_spot_x = int(rng.integers(1, max(2, phys_w - 1)))
+                phys_radius = int(rng.integers(1, 4))
+                
+                spot_y = target_y + int(round(phys_spot_y * scale))
+                spot_x = target_x + int(round(phys_spot_x * scale))
+                radius = int(round(phys_radius * scale))
+                
                 y_lo = max(0, spot_y - radius)
                 y_hi = min(img_h, spot_y + radius + 1)
                 x_lo = max(0, spot_x - radius)
@@ -350,13 +390,18 @@ def _inject_target_defects(
                     modified[y_lo:y_hi, x_lo:x_hi] = float(rng.uniform(10.0, 50.0))
 
         elif defect_type == 4:
-            # Edge roughness: bumps along structure edges
             num_bumps = int(rng.integers(5, 15))
             for _ in range(num_bumps):
-                bump_y = target_y + int(rng.integers(0, target_h))
-                bump_x = target_x + int(rng.integers(0, target_w))
-                bh = int(rng.integers(1, 5))
-                bw = int(rng.integers(1, 5))
+                phys_bump_y = int(rng.integers(0, phys_h))
+                phys_bump_x = int(rng.integers(0, phys_w))
+                phys_bh = int(rng.integers(1, 5))
+                phys_bw = int(rng.integers(1, 5))
+                
+                bump_y = target_y + int(round(phys_bump_y * scale))
+                bump_x = target_x + int(round(phys_bump_x * scale))
+                bh = int(round(phys_bh * scale))
+                bw = int(round(phys_bw * scale))
+                
                 y_lo = max(0, bump_y)
                 y_hi = min(img_h, bump_y + bh)
                 x_lo = max(0, bump_x)
@@ -365,31 +410,33 @@ def _inject_target_defects(
                 modified[y_lo:y_hi, x_lo:x_hi] += shift
 
         elif defect_type == 5:
-            # Bridging defect: bright bridge connecting adjacent structures
-            bridge_w = int(rng.integers(
-                max(3, config.defect_min_size),
-                min(config.defect_max_size, target_w // 3) + 1,
-            ))
-            bridge_h = int(rng.integers(2, min(6, target_h // 4) + 1))
-            local_x = int(rng.integers(2, max(3, target_w - bridge_w - 2)))
-            local_y = int(rng.integers(2, max(3, target_h - bridge_h - 2)))
-            abs_y = target_y + local_y
-            abs_x = target_x + local_x
+            phys_bridge_w = int(rng.integers(max(3, config.defect_min_size), min(config.defect_max_size, max(4, phys_w // 3)) + 1))
+            phys_bridge_h = int(rng.integers(2, min(6, max(3, phys_h // 4)) + 1))
+            phys_local_x = int(rng.integers(2, max(3, phys_w - phys_bridge_w - 2)))
+            phys_local_y = int(rng.integers(2, max(3, phys_h - phys_bridge_h - 2)))
+            
+            abs_y = target_y + int(round(phys_local_y * scale))
+            abs_x = target_x + int(round(phys_local_x * scale))
+            bridge_h = int(round(phys_bridge_h * scale))
+            bridge_w = int(round(phys_bridge_w * scale))
             y_end = min(img_h, abs_y + bridge_h)
             x_end = min(img_w, abs_x + bridge_w)
             val = float(rng.uniform(config.fin_intensity, config.fin_intensity + 40.0))
             modified[abs_y:y_end, abs_x:x_end] = val
 
         else:
-            # Void/particle: circular defect
-            cx = target_x + int(rng.integers(4, max(5, target_w - 4)))
-            cy = target_y + int(rng.integers(4, max(5, target_h - 4)))
-            radius = int(rng.integers(2, min(8, min(target_w, target_h) // 6) + 1))
+            phys_cx = int(rng.integers(4, max(5, phys_w - 4)))
+            phys_cy = int(rng.integers(4, max(5, phys_h - 4)))
+            phys_radius = int(rng.integers(2, min(8, max(3, min(phys_w, phys_h) // 6)) + 1))
+            
+            cx = target_x + int(round(phys_cx * scale))
+            cy = target_y + int(round(phys_cy * scale))
+            radius = int(round(phys_radius * scale))
+            
             yy, xx = np.ogrid[
                 max(0, cy - radius):min(img_h, cy + radius + 1),
                 max(0, cx - radius):min(img_w, cx + radius + 1),
             ]
-            # Compute actual center offsets relative to ogrid start
             cy_off = cy - max(0, cy - radius)
             cx_off = cx - max(0, cx - radius)
             dist_sq = (np.arange(yy.shape[0])[:, np.newaxis] - cy_off) ** 2 + \
@@ -454,40 +501,12 @@ def _apply_sensor_noise(
     return np.clip(noisy, 0.0, 255.0).astype(np.uint8)
 
 
-# ---------------------------------------------------------------------------
-# Single-Sample Generation
-# ---------------------------------------------------------------------------
-
 def generate_sample(
     seed: int,
     config: Optional[GeneratorConfig] = None,
 ) -> Tuple[np.ndarray, np.ndarray, SampleMetadata]:
     """
     Generate a single synthetic FinFET sample pair.
-
-    Pipeline:
-        1. Sample random scale within configured jitter range
-        2. Validate geometry (scaled template fits in search image)
-        3. Generate clean FinFET base structure
-        4. Choose random placement with margin
-        5. Inject realistic process defects into the target region
-        6. Apply illumination gradient
-        7. Create search image with independent sensor noise
-        8. Extract reference region at original scale with independent noise
-        9. Compute ground-truth coordinates (both top-left and center)
-
-    Args:
-        seed: Deterministic RNG seed.
-        config: Generator configuration.  Uses defaults if None.
-
-    Returns:
-        (ref_img, search_img, metadata)
-            ref_img:    uint8, shape (ref_size, ref_size)
-            search_img: uint8, shape (search_size, search_size)
-            metadata:   SampleMetadata with ground truth
-
-    Raises:
-        InvalidSampleError: If the geometry is invalid or quality checks fail.
     """
     if config is None:
         config = GeneratorConfig()
@@ -495,69 +514,90 @@ def generate_sample(
     rng = np.random.default_rng(seed)
 
     s_h, s_w = config.search_size, config.search_size
-    r_h, r_w = config.ref_size, config.ref_size
+    footprint_size = config.ref_size
+
+    # --- Phase B.c: CRITICAL MARGIN CHECK ---
+    # Ensure the footprint spans at least 1.5x the native fin period
+    min_required_footprint = int(np.ceil(1.5 * config.fin_period))
+    if footprint_size < min_required_footprint:
+        footprint_size = min_required_footprint
 
     # --- 1. Sample random scale ---
     scale = float(rng.uniform(config.scale_min, config.scale_max))
-    target_w = int(round(r_w * scale))
-    target_h = int(round(r_h * scale))
-
+    
     # --- 2. Validate geometry ---
-    if target_w >= s_w or target_h >= s_h:
+    if footprint_size >= s_w or footprint_size >= s_h:
         raise InvalidSampleError(
-            f"Scaled patch {target_w}×{target_h} does not fit in "
-            f"search image {s_w}×{s_h}."
+            f"Footprint {footprint_size}x{footprint_size} does not fit in "
+            f"search image {s_w}x{s_h}."
         )
 
     margin = config.placement_margin
-    max_x = s_w - target_w - margin
-    max_y = s_h - target_h - margin
+    max_x = s_w - footprint_size - margin
+    max_y = s_h - footprint_size - margin
     if max_x < margin or max_y < margin:
         raise InvalidSampleError(
-            f"Not enough room to place scaled template ({target_w}×{target_h}) "
-            f"with margin={margin} in search image ({s_w}×{s_h})."
+            f"Not enough room to place footprint ({footprint_size}x{footprint_size}) "
+            f"with margin={margin} in search image ({s_w}x{s_h})."
         )
 
-    # --- 3. Generate clean FinFET base ---
-    base_layout = _generate_finfet_base(s_h, s_w, rng, config)
+    # --- Phase B.a: Render Search base ---
+    search_clean = _generate_finfet_base(
+        s_h, s_w, rng, config,
+        x_offset=0.0, y_offset=0.0,
+        fin_period=config.fin_period,
+        gate_period=config.gate_period,
+    )
 
-    # --- 4. Choose random placement ---
+    # --- Phase B.b: Choose placement ---
     gt_x = int(rng.integers(margin, max_x + 1))
     gt_y = int(rng.integers(margin, max_y + 1))
 
-    # --- 5. Inject target-specific defects ---
-    defected_layout = _inject_target_defects(
-        base_layout, gt_y, gt_x, target_h, target_w, config, rng,
+    # --- Phase B.d: Render Reference SEPARATELY ---
+    # Note: user instruction says `fin_period_fine = fin_period / scale`, but ratio verification
+    # expects reference_period to be larger (e.g. 140 vs 14), so it must be fin_period * scale.
+    fin_period_ref = config.fin_period * scale
+    gate_period_ref = config.gate_period * scale
+    x_offset_ref = gt_x * scale
+    y_offset_ref = gt_y * scale
+    
+    ref_h = int(round(footprint_size * scale))
+    ref_w = int(round(footprint_size * scale))
+
+    ref_clean = _generate_finfet_base(
+        ref_h, ref_w, rng, config,
+        x_offset=x_offset_ref, y_offset=y_offset_ref,
+        fin_period=fin_period_ref,
+        gate_period=gate_period_ref,
     )
 
-    # --- 6. Apply illumination gradient ---
-    illuminated = _add_illumination_gradient(defected_layout, config, rng)
+    # --- Phase B.e: Inject defects into BOTH renderings at the same location ---
+    rng_state = rng.bit_generator.state
+    
+    # Inject into Search footprint (scale=1.0)
+    search_defected = _inject_target_defects(
+        search_clean, gt_y, gt_x, footprint_size, footprint_size, config, rng, scale=1.0
+    )
+    
+    # Restore RNG state and inject into Reference (scale=scale)
+    rng.bit_generator.state = rng_state
+    ref_defected = _inject_target_defects(
+        ref_clean, 0, 0, ref_h, ref_w, config, rng, scale=scale
+    )
 
-    # --- 7. Create search image with independent noise ---
-    search_img = _apply_sensor_noise(illuminated, config.noise_sigma_search, rng)
+    # --- Apply global defects to Search (outside footprint) ---
+    search_defected = _inject_global_defects(search_defected, config, rng)
 
-    # --- 8. Extract reference from clean-with-defects at original scale ---
-    # Use the defected (but pre-noise) structure to extract reference.
-    # This ensures reference has the defect structure but NOT the search noise.
-    target_region_clean = defected_layout[
-        gt_y:gt_y + target_h,
-        gt_x:gt_x + target_w,
-    ].copy()
+    # --- Apply illumination gradient ---
+    illuminated_search = _add_illumination_gradient(search_defected, config, rng)
 
-    # Downscale to reference size
-    ref_clean = cv2.resize(
-        target_region_clean.astype(np.float32),
-        (r_w, r_h),
-        interpolation=cv2.INTER_AREA,
-    ).astype(np.float64)
+    # --- Apply sensor noise ---
+    search_img = _apply_sensor_noise(illuminated_search, config.noise_sigma_search, rng)
 
-    # Apply brightness/contrast jitter
     b_offset = float(rng.uniform(-config.brightness_jitter, config.brightness_jitter))
     c_factor = 1.0 + float(rng.uniform(-config.contrast_jitter, config.contrast_jitter))
-    ref_clean = ref_clean * c_factor + b_offset
-
-    # Apply independent reference noise
-    ref_img = _apply_sensor_noise(ref_clean, config.noise_sigma_ref, rng)
+    ref_jittered = ref_defected * c_factor + b_offset
+    ref_img = _apply_sensor_noise(ref_jittered, config.noise_sigma_ref, rng)
 
     # --- Quality checks ---
     ref_var = float(np.var(ref_img.astype(np.float64)))
@@ -567,26 +607,20 @@ def generate_sample(
     if search_var < config.min_variance:
         raise InvalidSampleError(f"Search variance too low: {search_var:.2f}")
 
-    if ref_img.shape != (r_h, r_w):
-        raise InvalidSampleError(f"Reference shape mismatch: {ref_img.shape}")
-    if search_img.shape != (s_h, s_w):
-        raise InvalidSampleError(f"Search shape mismatch: {search_img.shape}")
-
-    # --- 9. Ground truth ---
-    gt_center_x = float(gt_x) + (target_w - 1) / 2.0
-    gt_center_y = float(gt_y) + (target_h - 1) / 2.0
+    gt_center_x = float(gt_x) + (footprint_size - 1) / 2.0
+    gt_center_y = float(gt_y) + (footprint_size - 1) / 2.0
 
     metadata = SampleMetadata(
         gt_top_left_x=gt_x,
         gt_top_left_y=gt_y,
         gt_center_x=gt_center_x,
         gt_center_y=gt_center_y,
-        scaled_width=target_w,
-        scaled_height=target_h,
+        scaled_width=footprint_size,
+        scaled_height=footprint_size,
         scale=round(float(scale), 6),
         seed=seed,
-        ref_width=r_w,
-        ref_height=r_h,
+        ref_width=ref_w,
+        ref_height=ref_h,
         config=_config_to_dict(config),
     )
 

@@ -13,8 +13,9 @@ class TestInference(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         
         # Create a simple valid image pair for testing
-        s_img = np.zeros((100, 100), dtype=np.uint8)
-        r_img = np.zeros((10, 10), dtype=np.uint8)
+        s_img = np.zeros((200, 200), dtype=np.uint8)
+        # In NEW convention, reference is large and gets downscaled.
+        r_img = np.zeros((100, 100), dtype=np.uint8)
         
         s_img[20:30, 20:30] = 255
         r_img[:, :] = 255

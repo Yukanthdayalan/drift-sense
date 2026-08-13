@@ -6,9 +6,9 @@ def get_scaled_dimensions(ref_h: int, ref_w: int, scale: float) -> Tuple[int, in
     """
     Computes the scaled dimensions for the reference image.
     
-    The physical relationship specifies that the reference image is a small template
-    that maps to a larger footprint in the search image. Therefore, the scale factor
-    must be applied as a multiplier.
+    Reference is the high-magnification/native-detail image and is therefore 
+    larger than its corresponding Search footprint. To match Search coordinates, 
+    the Reference is downscaled by the estimated scale factor.
     
     Args:
         ref_h: Original reference height.
@@ -18,8 +18,8 @@ def get_scaled_dimensions(ref_h: int, ref_w: int, scale: float) -> Tuple[int, in
     Returns:
         Tuple of (scaled_height, scaled_width).
     """
-    scaled_h = max(1, round(ref_h * scale))
-    scaled_w = max(1, round(ref_w * scale))
+    scaled_h = max(1, int(round(ref_h / scale)))
+    scaled_w = max(1, int(round(ref_w / scale)))
     return scaled_h, scaled_w
 
 def resize_reference_for_scale(ref_image: ImageArray, scale: float) -> ImageArray:
@@ -35,4 +35,4 @@ def resize_reference_for_scale(ref_image: ImageArray, scale: float) -> ImageArra
     """
     ref_h, ref_w = ref_image.shape[:2]
     scaled_h, scaled_w = get_scaled_dimensions(ref_h, ref_w, scale)
-    return cv2.resize(ref_image, (scaled_w, scaled_h), interpolation=cv2.INTER_LINEAR)
+    return cv2.resize(ref_image, (scaled_w, scaled_h), interpolation=cv2.INTER_AREA)

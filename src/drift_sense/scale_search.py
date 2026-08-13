@@ -137,6 +137,9 @@ def _score_scale_candidate(
     if scaled_h >= search_h or scaled_w >= search_w:
         logger.debug("Scale %.3f: scaled template (%dx%d) exceeds search image — skipping.", scale, scaled_w, scaled_h)
         return -1.0
+        
+    if scaled_h < 3 or scaled_w < 3:
+        return -1.0   # template too small to carry real structure
 
     scaled_ref = resize_reference_for_scale(ref_image, scale)
 

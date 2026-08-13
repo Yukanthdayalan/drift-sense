@@ -8,7 +8,7 @@ import csv
 from pathlib import Path
 
 def main():
-    eval_dir = os.path.abspath("final_submission_50/eval")
+    eval_dir = os.path.abspath("phase_e_eval/eval")
     if not os.path.exists(eval_dir):
         print(f"Error: Directory {eval_dir} does not exist.")
         sys.exit(1)
@@ -36,28 +36,14 @@ def main():
             print(f"Skipping {sample} (missing files)")
             continue
             
-        t0 = time.time()
-        # Run inference via subprocess
-        proc = subprocess.run(
-            [python_exe, inference_script, ref_path, search_path],
-            capture_output=True,
-            text=True,
-            check=False
-        )
-        t1 = time.time()
-        
-        if proc.returncode != 0:
-            print(f"Error running inference on {sample}: {proc.stderr}")
-            continue
-            
-        output = proc.stdout.strip()
-        
         try:
-            coords = output[1:-1].split(",")
-            pred_x = float(coords[0].strip())
-            pred_y = float(coords[1].strip())
+            from drift_sense.inference import run_inference
+            res = run_inference(ref_path, search_path)
+            pred_x = res.prediction.x
+            pred_y = res.prediction.y
+            runtime = res.execution_time_ms
         except Exception as e:
-            print(f"Error parsing output for {sample}: {output} ({e})")
+            print(f"Error running inference on {sample}: {e}")
             continue
             
         # Read ground truth ONLY after inference
@@ -70,7 +56,6 @@ def main():
         dx = pred_x - gt_x
         dy = pred_y - gt_y
         err = math.sqrt(dx*dx + dy*dy)
-        runtime = (t1 - t0) * 1000.0
         
         results.append({
             "sample_id": sample,

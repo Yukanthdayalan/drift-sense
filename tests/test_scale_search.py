@@ -39,9 +39,9 @@ class TestScoreScaleCandidate(unittest.TestCase):
 
     def test_oversized_scale_returns_minus_one(self):
         """A scale that makes the template exceed the search image returns -1."""
-        ref = np.ones((50, 50), dtype=np.float32)
+        ref = np.ones((500, 500), dtype=np.float32)
         search = np.ones((100, 100), dtype=np.float32)
-        # scale=3.0 → 150x150 template > 100x100 search → invalid
+        # scale=3.0 -> 166x166 template > 100x100 search -> invalid
         score = _score_scale_candidate(ref, search, scale=3.0)
         self.assertEqual(score, -1.0)
 
@@ -70,7 +70,7 @@ class TestCoarseScaleSearch(unittest.TestCase):
 
     def test_raises_when_no_valid_candidate(self):
         """Coarse search must raise ScaleSearchError when all scales are invalid."""
-        tiny_ref = np.ones((500, 500), dtype=np.float32)
+        tiny_ref = np.ones((5000, 5000), dtype=np.float32)
         tiny_search = np.ones((400, 400), dtype=np.float32)
         with self.assertRaises(ScaleSearchError):
             coarse_scale_search(tiny_ref, tiny_search, self.config)

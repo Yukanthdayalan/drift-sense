@@ -25,3 +25,7 @@ results/*.csv
 .idea/
 .DS_Store
 Thumbs.db
+
+phase_b_test/
+phase_e_eval/
+tmp_phase0/

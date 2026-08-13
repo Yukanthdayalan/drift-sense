@@ -18,7 +18,7 @@ class TestConfig(unittest.TestCase):
         # Verify specific defaults according to specification
         self.assertEqual(config.scale_search.min_scale, 9.0)
         self.assertEqual(config.scale_search.max_scale, 11.0)
-        self.assertEqual(config.tie_break.delta, 0.05)
+        self.assertEqual(config.tie_break.delta, 0.005)
         
     def test_config_is_immutable(self):
         """Verify the configuration objects are frozen and prevent runtime modification."""

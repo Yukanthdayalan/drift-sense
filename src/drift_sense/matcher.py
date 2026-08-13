@@ -38,16 +38,16 @@ def match(reference_path: str, search_path: str, config: EngineConfig = None) ->
         
         scales = estimate_top_n_scales(ref_norm, search_norm, config.scale_search, n_scales=2)
         
+        from drift_sense.geometry import get_scaled_dimensions, resize_reference_for_scale
         cands = []
         for scale_val in scales:
             ref_h, ref_w = ref_norm.shape
-            scaled_h = max(1, round(ref_h * scale_val))
-            scaled_w = max(1, round(ref_w * scale_val))
+            scaled_h, scaled_w = get_scaled_dimensions(ref_h, ref_w, scale_val)
             
             if scaled_h >= search_norm.shape[0] or scaled_w >= search_norm.shape[1]:
                 continue
                 
-            ref_scaled = cv2.resize(ref_norm, (scaled_w, scaled_h), interpolation=cv2.INTER_LINEAR)
+            ref_scaled = resize_reference_for_scale(ref_norm, scale_val)
             response_map = compute_zncc_fft(ref_scaled, search_norm)
             
             best_peak = detect_best_peak(response_map, config.nms, config.tie_break)

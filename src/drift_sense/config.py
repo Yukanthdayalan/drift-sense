@@ -41,8 +41,7 @@ class NMSConfig:
 
 @dataclass(frozen=True)
 class TieBreakConfig:
-    """Configuration for the deterministic tie-breaking logic."""
-    delta: float = 0.05  # Score equivalence threshold for tie breaking
+    delta: float = 0.005  # Score equivalence threshold for tie breaking
 
 @dataclass(frozen=True)
 class SubpixelConfig:

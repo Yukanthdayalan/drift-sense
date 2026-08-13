@@ -329,46 +329,19 @@ def compute_zncc_fft(
     """
     _validate_zncc_inputs(template, search)
 
-    t_h, t_w = template.shape
-    s_h, s_w = search.shape
-    valid_h = s_h - t_h + 1
-    valid_w = s_w - t_w + 1
+    std = float(template.std())
+    if std < _EPSILON:
+        t_h, t_w = template.shape
+        s_h, s_w = search.shape
+        return np.zeros((s_h - t_h + 1, s_w - t_w + 1), dtype=np.float32)
 
-    # Zero-mean the template once.
-    tmpl_zm = normalize_template(template)
-
-    # Template variance (scalar denominator component).
-    tmpl_std = float(tmpl_zm.std())
-    n_pixels = float(t_h * t_w)
-
-    # Numerator: cross-correlation via FFT.
-    # scipy.signal.fftconvolve uses float64 internally for accuracy.
-    # We flip the template because convolution ≡ correlation with flipped kernel.
-    tmpl_flipped = np.flip(tmpl_zm).astype(np.float64)
-    search_f64 = search.astype(np.float64)
-
-    # 'valid' mode returns exactly the valid correlation region.
-    numerator = scipy.signal.fftconvolve(
-        search_f64, tmpl_flipped, mode="valid"
-    ).astype(np.float32)
-
-    # Denominator: local std of search × global std of template × n_pixels.
-    local_mean, local_std = compute_local_statistics(search, t_h, t_w)
-
-    # Denominator combines template variance and local search variance.
-    # ZNCC denominator = sqrt(Var_template * n² * Var_search_window).
-    # Since template is zero-mean normalised: Var_template * n² = n * std_tmpl * n = n² * std_tmpl²
-    # Simplified: denom = n_pixels * tmpl_std * local_std (per position).
-    denom = (n_pixels * tmpl_std * local_std).astype(np.float32)
-    denom = np.maximum(denom, _EPSILON)
-
-    response_map = (numerator / denom).astype(np.float32)
+    response_map = cv2.matchTemplate(search, template, cv2.TM_CCOEFF_NORMED)
 
     # Clip to guard against extreme floating-point excursions.
     response_map = np.clip(response_map, -1.0, 1.0)
 
     logger.debug(
-        "compute_zncc_fft: response map shape=%s  max=%.4f",
+        "compute_zncc_fft (optimized): response map shape=%s  max=%.4f",
         response_map.shape, float(np.max(response_map)),
     )
     return response_map

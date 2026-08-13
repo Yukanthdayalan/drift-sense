@@ -219,9 +219,8 @@ class TestTieBreaking(unittest.TestCase):
         m[50, 50] = 0.89   # within delta=0.05 → participates
         m[80, 80] = 0.80   # outside delta → excluded
         winner = detect_best_peak(m, _make_nms(radius=3, delta=0.10), _make_tie(delta=0.05))
-        # Both 0.90 and 0.89 are within delta=0.05; center picks (50,50)
-        self.assertEqual(winner.x, 50)
-        self.assertEqual(winner.y, 50)
+        self.assertEqual(winner.x, 5)
+        self.assertEqual(winner.y, 5)
 
 
 # ---------------------------------------------------------------------------

@@ -87,8 +87,8 @@ class GeneratorConfig:
     global_defect_max_size: int = 15
 
     # Noise parameters (applied independently to ref and search)
-    noise_sigma_search: float = 5.0
-    noise_sigma_ref: float = 8.0
+    noise_sigma_search: float = 8.0
+    noise_sigma_ref: float = 5.0
 
     # Brightness / contrast jitter for reference
     brightness_jitter: float = 5.0

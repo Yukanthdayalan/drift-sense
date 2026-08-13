@@ -57,6 +57,7 @@ class PeakCandidate:
     y: int
     score: float
     distance_to_center: float
+    sharpness: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +200,8 @@ def _build_candidates(
     for r, c in zip(rows.tolist(), cols.tolist()):
         score = float(response_map[r, c])
         dist = _compute_distance(int(c), int(r), cx, cy)
-        candidates.append(PeakCandidate(x=int(c), y=int(r), score=score, distance_to_center=dist))
+        sharp = get_sharpness(response_map, int(c), int(r))
+        candidates.append(PeakCandidate(x=int(c), y=int(r), score=score, distance_to_center=dist, sharpness=sharp))
 
     return candidates
 
@@ -368,13 +370,13 @@ def select_best_peak(
         if (top1.score - c.score) <= tie_config.delta
     ]
 
-    # Among tied candidates, choose the one nearest to the image center.
-    winner = min(tied, key=lambda c: c.distance_to_center)
+    # Among tied candidates, choose the one with the highest sharpness
+    winner = max(tied, key=lambda c: c.sharpness)
 
     logger.info(
         "select_best_peak: TIE-BREAK activated. %d tied candidates. "
-        "Winner at (%d, %d) score=%.4f dist=%.2f.",
-        len(tied), winner.x, winner.y, winner.score, winner.distance_to_center,
+        "Winner at (%d, %d) score=%.4f sharpness=%.4f.",
+        len(tied), winner.x, winner.y, winner.score, winner.sharpness,
     )
     return winner
 

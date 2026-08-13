@@ -35,7 +35,7 @@ def main():
 
     try:
         # Keep stdout clean for the mandatory Phase-2 evaluator.
-        logging.getLogger("drift_sense").setLevel(logging.CRITICAL)
+        logging.disable(logging.CRITICAL)
 
         result = match(ref_path, search_path)
 

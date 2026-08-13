@@ -25,8 +25,8 @@ def main():
     print(f"Generating {args.num_pairs} {args.architecture.upper()} samples in '{args.output_dir}'...")
     
     config = GeneratorConfig(
-        noise_sigma_search=5.0, 
-        noise_sigma_ref=8.0,
+        noise_sigma_search=8.0,
+        noise_sigma_ref=5.0,
         num_target_defects=20
     )
     

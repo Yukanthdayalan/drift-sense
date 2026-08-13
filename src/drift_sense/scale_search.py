@@ -129,20 +129,16 @@ def _score_scale_candidate(
     Returns:
         float: Maximum NCC score in [−1, 1]. Returns −1.0 on dimensional failure.
     """
+    from drift_sense.geometry import get_scaled_dimensions, resize_reference_for_scale
     ref_h, ref_w = ref_image.shape[:2]
-    scaled_h = max(1, round(ref_h * scale))
-    scaled_w = max(1, round(ref_w * scale))
+    scaled_h, scaled_w = get_scaled_dimensions(ref_h, ref_w, scale)
 
     search_h, search_w = search_image.shape[:2]
     if scaled_h >= search_h or scaled_w >= search_w:
         logger.debug("Scale %.3f: scaled template (%dx%d) exceeds search image — skipping.", scale, scaled_w, scaled_h)
         return -1.0
 
-    scaled_ref = cv2.resize(
-        ref_image,
-        (scaled_w, scaled_h),
-        interpolation=cv2.INTER_LINEAR,
-    )
+    scaled_ref = resize_reference_for_scale(ref_image, scale)
 
     result = cv2.matchTemplate(search_image, scaled_ref, cv2.TM_CCOEFF_NORMED)
     _, max_val, _, _ = cv2.minMaxLoc(result)

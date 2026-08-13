@@ -8,8 +8,8 @@ The synthetic generation pipeline and algorithmic choices in Drift-Sense are gro
 **Justification:** Justifies the use of mixed noise distribution assumptions and intensity-dependent variance representing the finite electron counting statistics (`dataset.py:L142` - Gaussian/Speckle-like additive noise combination).
 
 ### 2. General Gaussian/Sensor Noise in SEM
-**Citation:** Pizarro, L., et al. (2010). "A highly robust noise model for scanning electron microscopy image restoration." *Medical Image Analysis*, 14(5), 633-644.
-**Justification:** Justifies the baseline addition of Gaussian noise to simulate the electronic thermal noise found in standard SEM photomultiplier tubes and solid-state detectors, particularly scaling differently for the search and reference domains based on dwell times (`dataset.py:L146` - `_add_noise` parameters).
+**Citation:** Foi, A., Trimeche, M., Katkovnik, V., & Egiazarian, K. (2008). "Practical Poissonian-Gaussian noise modeling and fitting for single-image raw-data." *IEEE Transactions on Image Processing*, 17(10), 1737-1754.
+**Justification:** Justifies the baseline addition of Gaussian noise to simulate the electronic thermal/read noise found in sensors (often modeled as a Poisson-Gaussian mixture), particularly scaling differently for the search and reference domains based on dwell times (`dataset.py:L146` - `_add_noise` parameters).
 
 ### 3. Edge Brightening (Edge Effect)
 **Citation:** Reimer, L. (1998). *Scanning Electron Microscopy: Physics of Image Formation and Microanalysis* (2nd ed.). Springer Series in Optical Sciences.
@@ -24,5 +24,5 @@ The synthetic generation pipeline and algorithmic choices in Drift-Sense are gro
 **Justification:** Discusses the fundamental vulnerability of normalized cross-correlation (NCC) to auto-correlation ambiguity when applied to strictly repeating periodic structures. This justifies the necessity of the hybrid CNN disambiguator to handle near-tied ZNCC peaks (`matcher.py:L102`).
 
 ### 6. Wafer Navigation and Die-to-Database Inspection
-**Citation:** Villarrubia, J. S., & Vladar, A. E. (2010). "The dependence of scanning electron microscope imaging on sample topology." *Scanning*, 32(3), 141-150.
-**Justification:** Provides context on SEM navigation errors and structural localization, validating the hackathon's core problem statement of detecting reference offsets from drift/stage-error in high-noise periodic fields.
+**Citation:** Cizmar, P., Vladár, A. E., & Postek, M. T. (2011). "Real-time scanning charged-particle microscope image composition with correction of drift." *Microscopy and Microanalysis*, 17(2), 302-308.
+**Justification:** Provides context on SEM drift, navigation errors, and the necessity of image correction techniques, validating the hackathon's core problem statement of detecting reference offsets from drift/stage-error in high-noise periodic fields.

@@ -16,6 +16,7 @@ def main():
     parser.add_argument("--num-pairs", type=int, default=10, help="Number of independent sample pairs to generate.")
     parser.add_argument("--output-dir", type=str, default="evaluation_dataset", help="Path to output directory.")
     parser.add_argument("--seed", type=int, default=1000, help="Starting random seed.")
+    parser.add_argument("--noise-multiplier", type=float, default=1.0, help="Multiplier for speckle and Gaussian noise parameters.")
     
     args = parser.parse_args()
     
@@ -25,10 +26,12 @@ def main():
     print(f"Generating {args.num_pairs} {args.architecture.upper()} samples in '{args.output_dir}'...")
     
     config = GeneratorConfig(
-        noise_sigma_search=8.0,
-        noise_sigma_ref=5.0,
+        noise_sigma_search=8.0 * args.noise_multiplier,
+        noise_sigma_ref=5.0 * args.noise_multiplier,
+        speckle_sigma=0.05 * args.noise_multiplier,
         num_target_defects=20
     )
+
     
     try:
         generate_dataset(

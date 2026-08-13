@@ -42,5 +42,6 @@ class InferenceResult:
     confidence: float
     is_fallback_triggered: bool
     execution_time_ms: float
+    low_confidence: bool = False
     candidates_found: int = 0
     message: str = "Success"

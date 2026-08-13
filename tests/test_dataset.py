@@ -647,14 +647,14 @@ class TestNoiseUtilities(unittest.TestCase):
         """Sensor noise output must be uint8."""
         img = np.full((50, 50), 128.0, dtype=np.float64)
         rng = np.random.default_rng(0)
-        result = _apply_sensor_noise(img, 10.0, rng)
+        result = _apply_sensor_noise(img, 10.0, 5.0, rng)
         self.assertEqual(result.dtype, np.uint8)
 
     def test_sensor_noise_modifies_image(self) -> None:
         """Sensor noise must actually change pixel values."""
         img = np.full((50, 50), 128.0, dtype=np.float64)
         rng = np.random.default_rng(0)
-        result = _apply_sensor_noise(img, 10.0, rng)
+        result = _apply_sensor_noise(img, 10.0, 5.0, rng)
         self.assertFalse(np.all(result == 128))
 
     def test_illumination_gradient_smooth(self) -> None:

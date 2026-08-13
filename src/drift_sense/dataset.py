@@ -103,6 +103,15 @@ class GeneratorConfig:
     # Quality gate
     min_variance: float = 10.0
 
+    # New additions for compliance
+    speckle_sigma: float = 0.05
+    blur_sigma_search_min: float = 0.5
+    blur_sigma_search_max: float = 2.0
+    blur_sigma_ref_min: float = 0.0
+    blur_sigma_ref_max: float = 0.5
+    rotation_range: float = 15.0  # Max rotation in degrees
+    edge_boost_factor: float = 0.3 # Factor for edge brightening
+
 
 @dataclass
 class SampleMetadata:
@@ -481,23 +490,52 @@ def _add_illumination_gradient(
     return np.clip(image + gradient, 0.0, 255.0)
 
 
-def _apply_sensor_noise(
+def _apply_edge_brightening(
     image: np.ndarray,
-    noise_sigma: float,
+    config: GeneratorConfig,
     rng: Generator,
 ) -> np.ndarray:
     """
-    Apply independent Gaussian sensor noise and convert to uint8.
+    Boost intensity along feature edges to mimic SEM secondary-electron edge contrast.
+    """
+    # Use Sobel for edge detection
+    sobel_x = cv2.Sobel(image, cv2.CV_64F, 1, 0, ksize=3)
+    sobel_y = cv2.Sobel(image, cv2.CV_64F, 0, 1, ksize=3)
+    edge_mask = np.hypot(sobel_x, sobel_y)
+    
+    # Normalize edge mask roughly to 0-1 range
+    edge_mask = edge_mask / (np.max(edge_mask) + 1e-5)
+    
+    # Blend additively
+    boost = edge_mask * (255.0 * config.edge_boost_factor)
+    return np.clip(image + boost, 0.0, 255.0)
+
+
+def _apply_sensor_noise(
+    image: np.ndarray,
+    noise_sigma: float,
+    speckle_sigma: float,
+    rng: Generator,
+) -> np.ndarray:
+    """
+    Apply independent Speckle and Gaussian sensor noise.
 
     Args:
         image: Clean image (float64).
-        noise_sigma: Standard deviation of Gaussian noise.
+        noise_sigma: Standard deviation of additive Gaussian noise.
+        speckle_sigma: Standard deviation of multiplicative Speckle noise.
         rng: Random generator.
 
     Returns:
         Noisy image as uint8.
     """
-    noisy = image + rng.normal(0.0, noise_sigma, image.shape)
+    # Multiplicative Speckle Noise
+    speckle_factor = rng.normal(0.0, speckle_sigma, image.shape)
+    noisy = image * (1.0 + speckle_factor)
+    
+    # Additive Gaussian Noise
+    noisy = noisy + rng.normal(0.0, noise_sigma, image.shape)
+    
     return np.clip(noisy, 0.0, 255.0).astype(np.uint8)
 
 
@@ -591,13 +629,39 @@ def generate_sample(
     # --- Apply illumination gradient ---
     illuminated_search = _add_illumination_gradient(search_defected, config, rng)
 
+    # --- Apply Edge Brightening (SEM mimic) ---
+    search_edge = _apply_edge_brightening(illuminated_search, config, rng)
+    ref_edge = _apply_edge_brightening(ref_defected, config, rng)
+
+    # --- Apply Blur ---
+    search_blur_sigma = float(rng.uniform(config.blur_sigma_search_min, config.blur_sigma_search_max))
+    ref_blur_sigma = float(rng.uniform(config.blur_sigma_ref_min, config.blur_sigma_ref_max))
+    search_blurred = cv2.GaussianBlur(search_edge, (5, 5), search_blur_sigma)
+    if ref_blur_sigma > 0:
+        ref_blurred = cv2.GaussianBlur(ref_edge, (5, 5), ref_blur_sigma)
+    else:
+        ref_blurred = ref_edge
+
     # --- Apply sensor noise ---
-    search_img = _apply_sensor_noise(illuminated_search, config.noise_sigma_search, rng)
+    search_img = _apply_sensor_noise(search_blurred, config.noise_sigma_search, config.speckle_sigma, rng)
 
     b_offset = float(rng.uniform(-config.brightness_jitter, config.brightness_jitter))
     c_factor = 1.0 + float(rng.uniform(-config.contrast_jitter, config.contrast_jitter))
-    ref_jittered = ref_defected * c_factor + b_offset
-    ref_img = _apply_sensor_noise(ref_jittered, config.noise_sigma_ref, rng)
+    ref_jittered = ref_blurred * c_factor + b_offset
+    ref_img = _apply_sensor_noise(ref_jittered, config.noise_sigma_ref, config.speckle_sigma, rng)
+
+    # --- Apply Rotation to Reference ---
+    # Randomly rotate reference image to simulate angular drift
+    angle = float(rng.uniform(-config.rotation_range, config.rotation_range))
+    center = (ref_img.shape[1] / 2.0, ref_img.shape[0] / 2.0)
+    rot_mat = cv2.getRotationMatrix2D(center, angle, 1.0)
+    ref_img = cv2.warpAffine(
+        ref_img, 
+        rot_mat, 
+        (ref_img.shape[1], ref_img.shape[0]), 
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REFLECT_101
+    )
 
     # --- Quality checks ---
     ref_var = float(np.var(ref_img.astype(np.float64)))

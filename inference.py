@@ -47,6 +47,7 @@ def main():
             data = {
                 "prediction_x": x,
                 "prediction_y": y,
+                "low_confidence": result.low_confidence,
             }
 
             with open(output_path, "w", encoding="utf-8") as f:

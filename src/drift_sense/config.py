@@ -60,6 +60,10 @@ class VerificationConfig:
     degrade gradient correlation in synthetic FinFET data.
     """
     min_combined_similarity: float = 0.20
+    # Threshold for flagging low_confidence in output.
+    # Chosen to be midway between the fallback threshold (0.2) and a strong match (0.8+)
+    # to flag marginally acceptable matches that didn't outright fail.
+    low_confidence_threshold: float = 0.50
     intensity_weight: float = 0.8
     gradient_weight: float = 0.2
     # Legacy field preserved for backward compatibility with tests

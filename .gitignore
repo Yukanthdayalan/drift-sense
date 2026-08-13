@@ -30,3 +30,12 @@ Thumbs.db
 phase_b_test/
 phase_e_eval/
 tmp_phase0/
+
+audit_dataset_50/
+audit_dataset_stress/
+generalization_test/
+get-pip.py
+install.log
+python-3.11.9-amd64.exe
+python-3.11.zip
+python311/

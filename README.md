@@ -63,7 +63,16 @@ On synthetic evaluation datasets, the approach provides remarkable stability, ev
 We implemented a hybrid CNN disambiguator designed to resolve periodic-ambiguity ties that the deterministic ZNCC backbone cannot break with correlation score alone. Rigorous testing (after fixing a scale-search artifact that had inflated the apparent ambiguity rate) showed genuine periodic ties are infrequent in this dataset's noise regime (approximately 4/30 samples), and are already resolved correctly by a lightweight sharpness heuristic at this density. The CNN architecture and training pipeline are implemented and validated for correctness, but not yet shown to outperform the heuristic at the current ambiguity frequency — we view it as a scalable extension for denser, more periodic real-fab layouts where tie frequency is expected to increase, rather than a currently load-bearing component. The classical backbone alone achieves 100.0% accuracy at <=2px on the 1.75x noise stress test.
 
 ## 14. Fresh Generalization Results
-On a fresh random synthetic generalization set (100 samples), the algorithm consistently demonstrates robust generalizability across random noise and scale seeds.
+On a fresh random synthetic generalization set (100 samples, different seed from the training/evaluation datasets), the algorithm consistently demonstrates robust generalizability across random noise and scale seeds. The results are logged in `results/generalization_results.csv`.
+
+| Metric | Value |
+|--------|-------|
+| **Mean Error** | 0.03 px |
+| **Median Error** | 0.02 px |
+| **Max Error** | 0.14 px |
+| **Accuracy <= 1 px** | 100.0% |
+| **Accuracy <= 2 px** | 100.0% |
+| **Accuracy <= 5 px** | 100.0% |
 
 ## 15. Limitations
 - **Synthetic Data:** The evaluation uses procedurally generated synthetic data; results are not evidence of guaranteed production SEM performance. Never present synthetic results as real-wafer performance.
@@ -77,7 +86,7 @@ python run_submission_50.py
 ```
 
 ## 17. Installation
-A Python 3.8+ runtime is required.
+Verified working on Python 3.11.9 (recommended). Python 3.14+ is known NOT to work due to missing prebuilt wheels for pinned dependencies as of this writing. Other versions (3.9–3.13) have not been explicitly tested — if using a version other than 3.11, verify `pip install -r requirements.txt` completes cleanly before relying on it.
 ```bash
 git clone https://github.com/Yukanthdayalan/drift-sense
 cd drift-sense

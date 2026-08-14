@@ -47,25 +47,33 @@ def match(reference_path: str, search_path: str, config: EngineConfig = None) ->
             if scaled_h >= search_norm.shape[0] or scaled_w >= search_norm.shape[1]:
                 continue
                 
-            ref_scaled = resize_reference_for_scale(ref_norm, scale_val)
-            response_map = compute_zncc_fft(ref_scaled, search_norm)
-            
-            best_peak = detect_best_peak(response_map, config.nms, config.tie_break)
-            sharpness = get_sharpness(response_map, best_peak.x, best_peak.y)
-            sub_result = refine_subpixel(response_map, best_peak.x, best_peak.y, config.subpixel)
-            
-            x_center = sub_result.x + (scaled_w - 1) / 2.0
-            y_center = sub_result.y + (scaled_h - 1) / 2.0
-            
-            cands.append({
-                "scale": scale_val,
-                "x_center": x_center,
-                "y_center": y_center,
-                "intensity": float(best_peak.score),
-                "sharpness": sharpness,
-                "ref_scaled": ref_scaled,
-                "sub_result": sub_result,
-            })
+            for angle in [-15.0, -7.5, 0.0, 7.5, 15.0]:
+                if angle != 0.0:
+                    rot_mat = cv2.getRotationMatrix2D((ref_w / 2.0, ref_h / 2.0), angle, 1.0)
+                    ref_rot = cv2.warpAffine(ref_norm, rot_mat, (ref_w, ref_h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT_101)
+                else:
+                    ref_rot = ref_norm
+                    
+                ref_scaled = resize_reference_for_scale(ref_rot, scale_val)
+                response_map = compute_zncc_fft(ref_scaled, search_norm)
+                
+                best_peak = detect_best_peak(response_map, config.nms, config.tie_break)
+                sharpness = get_sharpness(response_map, best_peak.x, best_peak.y)
+                sub_result = refine_subpixel(response_map, best_peak.x, best_peak.y, config.subpixel)
+                
+                x_center = sub_result.x + (scaled_w - 1) / 2.0
+                y_center = sub_result.y + (scaled_h - 1) / 2.0
+                
+                cands.append({
+                    "scale": scale_val,
+                    "angle": angle,
+                    "x_center": x_center,
+                    "y_center": y_center,
+                    "intensity": float(best_peak.score),
+                    "sharpness": sharpness,
+                    "ref_scaled": ref_scaled,
+                    "sub_result": sub_result,
+                })
             
         if not cands:
             raise DriftSenseError("No valid candidate scales found after ZNCC scoring.")

@@ -1,36 +1,6 @@
-# Python
-.venv/
-venv/
-__pycache__/
-.pytest_cache/
-*.pyc
-*.pyo
-
-# Generated datasets
-final_test/
-final_submission_50/
-submission_test/
+﻿# Existing repository/environment ignores
 evaluation_dataset/
-test_extraction/inference_test_dataset/
-
-# Temporary output
-output.txt
-cli_test.json
-
-# Generated evaluation results
-results/*.csv
-!results/generalization_results.json
-
-# IDE / OS
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
-
-phase_b_test/
-phase_e_eval/
 tmp_phase0/
-
 audit_dataset_50/
 audit_dataset_stress/
 generalization_test/
@@ -39,3 +9,19 @@ install.log
 python-3.11.9-amd64.exe
 python-3.11.zip
 python311/
+
+# Python/cache/temporary files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+env/
+*.egg-info/
+tmp_*/
+temp_*/
+audit_dataset_*/
+*.log
+.venv311/
+venv2/
+.venv_clean/

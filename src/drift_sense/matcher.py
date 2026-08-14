@@ -85,51 +85,7 @@ def match(reference_path: str, search_path: str, config: EngineConfig = None) ->
             diff = cands[0]["intensity"] - cands[1]["intensity"]
             if diff < TOP_2_INTENSITY_THRESHOLD:
                 disambiguation_method = "sharpness"
-                selected_idx = 0
-                
-                # Check for CNN
-                cnn_model = None
-                if getattr(config, 'use_cnn_disambiguation', True):
-                    try:
-                        from drift_sense.disambiguator import load_disambiguator
-                        cnn_model = load_disambiguator()
-                    except ImportError:
-                        pass
-                        
-                if cnn_model is not None:
-                    import torch
-                    from drift_sense.disambiguator import extract_crop
-                    
-                    crop0 = extract_crop(search_norm, cands[0]["x_center"], cands[0]["y_center"], 64)
-                    crop1 = extract_crop(search_norm, cands[1]["x_center"], cands[1]["y_center"], 64)
-                    
-                    t0 = torch.from_numpy(crop0).float().unsqueeze(0).unsqueeze(0)
-                    t1 = torch.from_numpy(crop1).float().unsqueeze(0).unsqueeze(0)
-                    
-                    with torch.no_grad():
-                        score0 = cnn_model(t0).item()
-                        score1 = cnn_model(t1).item()
-                        
-                    logger.info(f"CNN scores: cand0={score0:.3f}, cand1={score1:.3f}")
-                    
-                    sharp_pick = 1 if cands[1]["sharpness"] > cands[0]["sharpness"] else 0
-                    
-                    if sharp_pick == 0 and score0 > 0.5:
-                        selected_idx = 0
-                        disambiguation_method = "cnn_override (agreed)"
-                    elif sharp_pick == 1 and score1 > 0.5 and score1 > score0 + 0.1:
-                        selected_idx = 1
-                        disambiguation_method = "cnn_override (agreed)"
-                    elif score1 > 0.7 and score0 < 0.3:
-                        selected_idx = 1
-                        disambiguation_method = "cnn_override"
-                    elif score0 > 0.7 and score1 < 0.3:
-                        selected_idx = 0
-                        disambiguation_method = "cnn_override"
-                    else:
-                        selected_idx = sharp_pick
-                else:
-                    selected_idx = 1 if cands[1]["sharpness"] > cands[0]["sharpness"] else 0
+                selected_idx = 1 if cands[1]["sharpness"] > cands[0]["sharpness"] else 0
                     
                 if selected_idx == 1:
                     logger.info(f"Top-2 Disambiguation triggered ({disambiguation_method}): candidate 2 selected.")
